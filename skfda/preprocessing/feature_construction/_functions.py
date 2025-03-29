@@ -285,15 +285,15 @@ def number_crossings(
     direction: Literal["up", "down", "all"] = "all",
 ) -> NDArrayInt:
     r"""
-    Calculate the number of crossings to a level of a FDataGrid.
+    Calculate the number of crossings to a level of an FDataGrid.
 
-    Let f_1(X) = N_i, where N_i is the number of up crossings of X
-    to a level c_i \in \mathbb{R}, i = 1,\dots,p.
+    Let :math:`f_i(X) = N_i`, where :math:`N_i` is the number of up crossings of
+    :math:`X` to a level :math:`c_i \in \mathbb{R}`, for :math:`i = 1,\dots,p`.
 
-    Recall that the process X(t) is said to have an up crossing of c
-    at :math:`t_0 > 0` if for some :math:`\epsilon >0`, X(t) $\leq$
-    c if t :math:'\in (t_0 - \epsilon, t_0) and X(t) $\geq$ c if
-    :math:`t\in (t_0, t_0+\epsilon)`.
+    Recall that the process :math:`X(t)` is said to have an up crossing of a level
+    :math:`c` at :math:`t_0 > 0` if for some :math:`\epsilon > 0`,
+    :math:`X(t) \leq c` for :math:`t\in (t_0 - \epsilon, t_0)` and
+    :math:`X(t) \geq c` for :math:`t\in (t_0, t_0+\epsilon)`.
 
     If the trajectories are differentiable, then
     :math:`N_i = card\{t \in[a,b]: X(t) = c_i, X' (t) > 0\}.`
