@@ -8,7 +8,7 @@ from typing import Any, Generic, Tuple, TypeVar
 
 import numpy as np
 from sklearn.utils.validation import check_is_fitted
-
+from ...exploratory.stats import mean
 from ..._utils._sklearn_adapter import (
     BaseEstimator,
     ClusterMixin,
@@ -19,16 +19,18 @@ from ...misc.validation import (
     check_fdata_same_dimensions,
     validate_random_state,
 )
-from ...representation import FDataGrid
+from ...representation import FData,FDataGrid, FDataBasis, FDataIrregular
 from ...typing._base import RandomState, RandomStateLike
 from ...typing._metric import Metric
 from ...typing._numpy import NDArrayAny, NDArrayFloat, NDArrayInt
+
+from ...misc.validation import check_fdata_same_kind
 
 SelfType = TypeVar("SelfType", bound="BaseKMeans[Any, Any]")
 MembershipType = TypeVar("MembershipType", bound=NDArrayAny)
 
 # TODO: Generalize to FData and NDArray, without losing performance
-Input = TypeVar("Input", bound=FDataGrid)
+Input = TypeVar("Input", bound=FData)
 
 
 class BaseKMeans(
@@ -61,10 +63,8 @@ class BaseKMeans(
         Args:
             n_clusters: Number of groups into which the samples
                 are classified. Defaults to 2.
-            init: Contains the initial centers of the
-                different clusters the algorithm starts with. Its data_marix
-                must be of the shape (n_clusters, fdatagrid.ncol,
-                fdatagrid.dim_codomain). Defaults to None, and the centers are
+            init: Optional initial centers for the clusters. Must be compatible with the 
+                functional data to be clustered. If None (default), the centers are 
                 initialized randomly.
             metric: functional data metric. Defaults to
                 *l2_distance*.
@@ -126,15 +126,14 @@ class BaseKMeans(
 
         if (
             self.init is not None
-            and self.init.data_matrix.shape != (
-                (self.n_clusters,) + fdata.data_matrix.shape[1:]
-            )
+            and (self.init.n_samples!= self.n_clusters)
         ):
             raise ValueError(
-                "The init FDataGrid data_matrix should be of "
-                "shape (n_clusters, n_features, dim_codomain) "
-                "and gives the initial centers.",
+                "The init FData should be have the same "
+                "number of observations as n_clusters "
             )
+        if self.init is not None:
+            check_fdata_same_kind(fdata1=self.init, fdata2=fdata)
 
         if self.max_iter < 1:
             raise ValueError(
@@ -148,20 +147,36 @@ class BaseKMeans(
 
     def _tolerance(self, fdata: Input) -> float:
         variance = fdata.var(correction=0)
-        mean_variance = np.mean(variance[0].data_matrix)
+        mean_variance = np.mean(variance[0].data_matrix) #TODO: que coño mide esto?
 
         return float(mean_variance * self.tol)
 
+    def _unique_index(self, fdata: Input) -> NDArrayInt:
+        if isinstance(fdata, FDataGrid):
+            # Heavily optimized method for FDataGrid
+            _, idx = np.unique(
+                fdata.data_matrix,
+                axis=0,
+                return_index=True,
+            )
+            return idx
+        
+        result: list[int] = []
+        for i,item in enumerate(fdata):
+            if not any(item.equals(fdata[seen]) for seen in result):
+                result.append(i)
+        return np.array(result)
+
     def _init_centroids(
         self,
-        fdatagrid: Input,
+        fdata: Input,
         random_state: RandomState,
     ) -> Input:
         """
         Compute the initial centroids.
 
         Args:
-            fdatagrid: Object whose samples are classified into different
+            fdata: Object whose samples are classified into different
                 groups.
             random_state: Random number generation for centroid initialization.
 
@@ -170,12 +185,8 @@ class BaseKMeans(
 
         """
         if self.init is None:
-            _, idx = np.unique(
-                fdatagrid.data_matrix,
-                axis=0,
-                return_index=True,
-            )
-            unique_data = fdatagrid[np.sort(idx)]
+            idx = self._unique_index(fdata)
+            unique_data = fdata[np.sort(idx)]
 
             if len(unique_data) < self.n_clusters:
                 raise ValueError(
@@ -207,8 +218,55 @@ class BaseKMeans(
         membership_matrix: MembershipType,
         distances_to_centroids: NDArrayFloat,
         centroids: Input,
-    ) -> None:
+    ) -> Input:
         pass
+    
+    def _n_zero_func_like(self, fdata: Input, number_functions: int)-> Input:
+
+        if isinstance(fdata, FDataGrid):
+            data_matrix = np.zeros(
+                (number_functions,) + fdata.data_matrix.shape[1:],
+            )
+            return FDataGrid(
+                data_matrix=data_matrix,
+                grid_points=fdata.grid_points,
+                domain_range=fdata.domain_range,
+                argument_names=fdata.argument_names,
+                coordinate_names=fdata.coordinate_names,
+            )
+        
+        if isinstance(fdata, FDataBasis):
+            new_coeffs = np.zeros((number_functions, fdata.coefficients.shape[1]))
+            return FDataBasis(
+                basis=fdata.basis,
+                coefficients=new_coeffs,
+                argument_names=fdata.argument_names,
+                coordinate_names=fdata.coordinate_names,
+            )
+        
+        raise NotImplementedError("Only implementded for FDataGrid and FDataBasis")
+        
+    def _update_fdata_data(self, target: Input, source: Input) -> None:
+        if type(target) != type(source):
+            raise TypeError("Both FData objects must be of the same type.")
+
+        if isinstance(target, FDataGrid):
+            target.data_matrix[...] = source.data_matrix
+
+        elif isinstance(target, FDataBasis):
+            target.coefficients[...] = source.coefficients
+
+        elif isinstance(target, FDataIrregular):
+            # This assumes the structure is already identical!
+            if (
+                not np.array_equal(target.start_indices, source.start_indices)
+                or not np.array_equal(target.points, source.points)
+            ):
+                raise ValueError("FDataIrregular objects must have same structure.")
+            target.values[...] = source.values
+
+        else:
+            raise TypeError(f"Unsupported FData type: {type(target).__name__}")
 
     def _algorithm(
         self,
@@ -218,7 +276,7 @@ class BaseKMeans(
         """
         Fuzzy K-Means algorithm.
 
-        Implementation of the Fuzzy K-Means algorithm for FDataGrid objects
+        Implementation of the Fuzzy K-Means algorithm for FData objects
         of any dimension.
 
         Args:
@@ -243,13 +301,16 @@ class BaseKMeans(
 
         """
         repetitions = 0
+        membership_matrix = self._create_membership(fdata.n_samples)
+
+        """ 
         centroids_old_matrix = np.zeros(
             (self.n_clusters,) + fdata.data_matrix.shape[1:],
         )
-        membership_matrix = self._create_membership(fdata.n_samples)
-
+        centroids_old = centroids.copy(data_matrix=centroids_old_matrix) """ # Create empty centroids
         centroids = self._init_centroids(fdata, random_state)
-        centroids_old = centroids.copy(data_matrix=centroids_old_matrix)
+
+        centroids_old = self._n_zero_func_like(fdata, self.n_clusters)
 
         pairwise_metric = PairwiseMetric(self.metric)
 
@@ -262,12 +323,12 @@ class BaseKMeans(
                 and repetitions < self.max_iter
             )
         ):
-
-            centroids_old.data_matrix[...] = centroids.data_matrix
+            """ centroids_old.data_matrix[...] = centroids.data_matrix """
+            self._update_fdata_data(centroids_old, centroids)
 
             distances_to_centroids = pairwise_metric(fdata, centroids)
 
-            self._update(
+            centroids = self._update(
                 fdata=fdata,
                 membership_matrix=membership_matrix,
                 distances_to_centroids=distances_to_centroids,
@@ -615,19 +676,17 @@ class KMeans(BaseKMeans[Input, NDArrayInt]):
         membership_matrix: NDArrayInt,
         distances_to_centroids: NDArrayFloat,
         centroids: Input,
-    ) -> None:
+    ) -> Input:
 
         membership_matrix[:] = np.argmin(distances_to_centroids, axis=1)
-
+        centroid_list = []
         for i in range(self.n_clusters):
-
             indices = np.where(membership_matrix == i)[0]
 
-            if len(indices) != 0:
-                centroids.data_matrix[i] = np.average(
-                    fdata.data_matrix[indices, ...],
-                    axis=0,
-                )
+            if len(indices) > 0:
+                centroid_list.append(fdata[indices].mean())
+        
+        return centroids[0] if len(centroid_list)==1 else centroid_list[0].concatenate(*centroid_list[1:])
 
 
 class FuzzyCMeans(BaseKMeans[Input, NDArrayFloat]):
@@ -816,43 +875,31 @@ class FuzzyCMeans(BaseKMeans[Input, NDArrayFloat]):
         membership_matrix: NDArrayFloat,
         distances_to_centroids: NDArrayFloat,
         centroids: Input,
-    ) -> None:
-        # Divisions by zero allowed
+    ) -> Input:
+        
         with np.errstate(divide='ignore'):
-            distances_to_centers_raised = (
-                distances_to_centroids**(2 / (1 - self.fuzzifier))
-            )
+            distances_raised = distances_to_centroids ** (2 / (1 - self.fuzzifier))
 
-        # Divisions infinity by infinity allowed
         with np.errstate(invalid='ignore'):
             membership_matrix[:, :] = (
-                distances_to_centers_raised
-                / np.sum(
-                    distances_to_centers_raised,
-                    axis=1,
-                    keepdims=True,
-                )
+                distances_raised / np.sum(distances_raised, axis=1, keepdims=True)
             )
 
-        # inf / inf divisions should be 1 in this context
         membership_matrix[np.isnan(membership_matrix)] = 1
 
-        membership_matrix_raised = np.power(
-            membership_matrix,
-            self.fuzzifier,
-        )
+        # Step 2: use raised membership as weights
+        membership_raised = membership_matrix ** self.fuzzifier
 
-        slice_denominator = (
-            (slice(None),) + (np.newaxis,) * (fdata.data_matrix.ndim - 1)
-        )
-        centroids.data_matrix[:] = (
-            np.einsum(
-                'ij,i...->j...',
-                membership_matrix_raised,
-                fdata.data_matrix,
-            )
-            / np.sum(membership_matrix_raised, axis=0)[slice_denominator]
-        )
+        # Step 3: compute weighted mean per cluster
+        centroids_list = []
+        for j in range(self.n_clusters):
+            weights = membership_raised[:, j]
+            if np.sum(weights) > 0:
+                centroid = mean(fdata, weights)
+                centroids_list.append(centroid)
+
+        # Step 4: return new concatenated centroids
+        return centroids_list[0] if len(centroids_list) == 1 else centroids_list[0].concatenate(*centroids_list[1:])
 
     def predict_proba(
         self,
