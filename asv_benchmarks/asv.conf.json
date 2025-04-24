@@ -6,9 +6,9 @@
     "repo": "..",
     "branches": ["develop"],
     "environment_type": "conda",
-    "show_commit_url": "http://github.com/GAA-UAM/scikit-fda/commit/",
+    "show_commit_url": "https://github.com/GAA-UAM/scikit-fda/commit/",
     "build_command": [
         "python -m build",
-        "python -mpip wheel --no-deps -w {build_cache_dir} {build_dir}"
+        "python -m pip wheel --no-deps -w {build_cache_dir} {build_dir}"
     ]
 }

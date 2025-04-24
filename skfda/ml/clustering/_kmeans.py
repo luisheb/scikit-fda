@@ -147,7 +147,7 @@ class BaseKMeans(
 
     def _tolerance(self, fdata: Input) -> float:
         variance = fdata.var(correction=0)
-        mean_variance = np.mean(variance[0].data_matrix) #TODO: que coño mide esto?
+        mean_variance = np.mean(variance[0].data_matrix) #TODO: Modify
 
         return float(mean_variance * self.tol)
 
