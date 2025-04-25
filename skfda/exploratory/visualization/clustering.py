@@ -18,6 +18,10 @@ from sklearn.exceptions import NotFittedError
 from sklearn.utils.validation import check_is_fitted
 from typing_extensions import Protocol
 
+from ...typing._base import GridPointsLike
+
+from..._utils import constants
+
 from ...misc.validation import check_fdata_same_dimensions
 from ...representation import FData, FDataGrid
 from ...typing._numpy import NDArrayFloat, NDArrayInt
@@ -194,7 +198,7 @@ class ClusterPlot(BasePlot):
     def __init__(
         self,
         estimator: ClusteringEstimator,
-        fdata: FDataGrid,
+        fdata: FData,
         chart: Figure | Axes | None = None,
         fig: Figure | None = None,
         axes: Axes | Sequence[Axes] | None = None,
@@ -236,13 +240,32 @@ class ClusterPlot(BasePlot):
     @property
     def n_samples(self) -> int:
         return self.fdata.n_samples
+    
+    def _to_grid_compatible(
+        self,
+        fdata: FData,
+        centers: FData,
+        n_points_1d: int = constants.N_POINTS_UNIDIMENSIONAL_PLOT_MESH,
+        n_points_2d: int = constants.N_POINTS_SURFACE_PLOT_AX,
+    ) -> tuple[FDataGrid, FDataGrid]:
+        if isinstance(fdata, FDataGrid):
+            return fdata, centers
 
+        if fdata.dim_domain == 1:
+            eval_points: GridPointsLike = np.linspace(*fdata.domain_range[0], n_points_1d)
+        else:
+            x = np.linspace(*fdata.domain_range[0], n_points_2d)
+            y = np.linspace(*fdata.domain_range[1], n_points_2d)
+            eval_points: GridPointsLike = (x, y)
+
+        return fdata.to_grid(eval_points), centers.to_grid(eval_points)
+    
     def _plot_clusters(
         self,
         fig: Figure,
         axes: Sequence[Axes],
     ) -> None:
-        """Implement the plot of the FDataGrid samples by clusters."""
+        """Implement the plot of the FData samples by clusters."""
         _plot_clustering_checks(
             estimator=self.estimator,
             fdata=self.fdata,
@@ -288,34 +311,36 @@ class ClusterPlot(BasePlot):
             for i in range(self.estimator.n_clusters)
         ]
 
+        fdatagrid, centers = self._to_grid_compatible(self.fdata, self.estimator.cluster_centers_)
+        
         artists = [
             axes[j].plot(
-                self.fdata.grid_points[0],
-                self.fdata.data_matrix[i, :, j],
+                fdatagrid.grid_points[0],
+                fdatagrid.data_matrix[i, :, j],
                 c=colors_by_cluster[i],
                 label=self.sample_labels[i],
             )
-            for j in range(self.fdata.dim_codomain)
-            for i in range(self.fdata.n_samples)
+            for j in range(fdatagrid.dim_codomain)
+            for i in range(fdatagrid.n_samples)
         ]
 
         self.artists = np.array(artists).reshape(
             (self.n_subplots, self.n_samples),
         ).T
 
-        for j in range(self.fdata.dim_codomain):
+        for j in range(fdatagrid.dim_codomain):
 
             for i in range(self.estimator.n_clusters):
                 axes[j].plot(
-                    self.fdata.grid_points[0],
-                    self.estimator.cluster_centers_.data_matrix[i, :, j],
+                    fdatagrid.grid_points[0],
+                    centers.data_matrix[i, :, j],
                     c=self.center_colors[i],
                     label=self.center_labels[i],
                     linewidth=self.center_width,
                 )
             axes[j].legend(handles=patches)
 
-        _set_labels(self.fdata, fig, axes)
+        _set_labels(fdatagrid, fig, axes)
 
     def _plot(
         self,
@@ -352,11 +377,11 @@ class ClusterMembershipLinesPlot(BasePlot):
         axes: axis over where the graph is  plotted.
             If None, see param fig.
         sample_colors: contains in order the colors
-            of each sample of the fdatagrid.
+            of each sample of the fdata.
         sample_labels: contains in order the labels
-            of each sample  of the fdatagrid.
+            of each sample  of the fdata.
         cluster_labels: contains in order the names of
-            each cluster the samples of the fdatagrid are classified into.
+            each cluster the samples of the fdata are classified into.
         colormap: colormap from which the colors of the
             plot are taken.
         x_label: Label for the x-axis. Defaults to "Cluster".
@@ -370,7 +395,7 @@ class ClusterMembershipLinesPlot(BasePlot):
     def __init__(
         self,
         estimator: FuzzyClusteringEstimator,
-        fdata: FDataGrid,
+        fdata: FData,
         *,
         chart: Figure | Axes | None = None,
         fig: Figure | None = None,
