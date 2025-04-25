@@ -5,7 +5,7 @@ from __future__ import annotations
 import warnings
 from abc import abstractmethod
 from typing import Any, Generic, Tuple, TypeVar
-
+from skfda._utils.ndfunction import average_function_value
 import numpy as np
 from sklearn.utils.validation import check_is_fitted
 from ...exploratory.stats import mean
@@ -147,7 +147,7 @@ class BaseKMeans(
 
     def _tolerance(self, fdata: Input) -> float:
         variance = fdata.var(correction=0)
-        mean_variance = np.mean(variance[0].data_matrix) #TODO: Modify
+        mean_variance=average_function_value(variance)[0]
 
         return float(mean_variance * self.tol)
 

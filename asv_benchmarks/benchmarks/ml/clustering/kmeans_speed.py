@@ -7,8 +7,6 @@ from skfda.ml.clustering import KMeans
 from skfda import datasets
 import matplotlib
 
-
-
 class TimeKMeans:
     """Performance of :class:`skfda.ml.clustering.KMeans` for FDataGrid."""
 
@@ -25,9 +23,7 @@ class TimeKMeans:
 
         climates = target[indices_samples].remove_unused_categories()
 
-        colormap = matplotlib.colormaps['tab20b']
         n_climates = len(climates.categories)
-        climate_colors = colormap(np.arange(n_climates) / (n_climates - 1))
 
         n_clusters = n_climates
         seed = 2
