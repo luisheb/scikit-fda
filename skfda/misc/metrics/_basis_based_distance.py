@@ -8,20 +8,26 @@ if TYPE_CHECKING:
     from ...representation import FDataBasis
     from ...typing._numpy import NDArrayFloat
 
+from ...misc.validation import check_fdata_same_kind
+
 
 class BasisBasedDistance:
     r"""
     Weighted distance between two FDataBasis observations.
 
     This class computes the distance between two functional data objects
-    represented in the same basis. Given two functional observations
-    \(X_1, X_2\), their basis representations are:
+    represented in the same basis. It generalizes the idea of Mahalanobis-type
+    distances to settings where observations are expressed in an arbitrary
+    (possibly non-orthonormal) basis.
+
+    Given two functional observations \(X_1, X_2\), their basis representations
+    are:
 
     .. math::
         X_1(t) = \sum_{k=1}^{K} c_{1,k} \phi_k(t), \quad
         X_2(t) = \sum_{k=1}^{K} c_{2,k} \phi_k(t).
 
-    If the basis is orthogonal, a natural distance between \(X_1\) and \(X_2\)
+    If the basis is orthonormal, a natural distance between \(X_1\) and \(X_2\)
     is defined in terms of the basis coefficients \(c_{1,k}\) and \(c_{2,k}\):
 
     .. math::
@@ -69,13 +75,17 @@ class BasisBasedDistance:
         \cdots & \langle \phi_K, \phi_K \rangle
         \end{pmatrix}.
 
-    This class takes two `FDataBasis` objects with the same basis and computes
-    the functional distance between them.
+    By selecting the basis and weights, users can tailor the distance
+    measure to emphasize meaningful directions or reduce sensitivity to
+    components with high variability. For example, using the eigenfunctions
+    of a covariance operator and setting \( \nu_k = 1/\lambda_k \) leads to
+    a Mahalanobis-type distance, which downweights components with high
+    variance and emphasizes more stable features.
 
     Attributes:
         fd1: First functional data object.
         fd2: Second functional data object.
-        weights: Weighting function \( \nu_k \).
+        weights: Weighting scalars for each basis component \( \nu_k \).
         gram_matrix: Gram matrix \( M \) of the basis functions.
 
     Example:
@@ -99,9 +109,7 @@ class BasisBasedDistance:
 
     def __call__(self, fd1: FDataBasis, fd2: FDataBasis) -> NDArrayFloat:
 
-        if fd1.basis != fd2.basis:
-            msg = "Both functional data objects must have the same basis."
-            raise ValueError(msg)
+        check_fdata_same_kind(fd1, fd2)
 
         c1 = fd1.coefficients  # shape (n_samples_1, n_basis)
         c2 = fd2.coefficients  # shape (n_samples_2, n_basis)
