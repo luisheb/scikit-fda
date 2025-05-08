@@ -3,15 +3,13 @@
 import math
 from typing import Final
 
-import numpy as np
-
-from ..._utils import nquad_vec
-from ...representation import FData, FDataBasis, FDataGrid
+from ...representation import FData
 from ...typing._metric import Norm
 from ...typing._numpy import NDArrayFloat
+from ._weighted_lp_norm import WeightedLpNorm
 
 
-class LpNorm:
+class LpNorm(WeightedLpNorm):
     r"""
     Norm of all the observations in a FDataGrid object.
 
@@ -88,105 +86,13 @@ class LpNorm:
         p: float,
         vector_norm: Norm[NDArrayFloat] | float | None = None,
     ) -> None:
-
-        # Checks that the lp normed is well defined
-        if not np.isinf(p) and p < 1:
-            msg = f"p (={p}) must be equal or greater than 1."
-            raise ValueError(msg)
-
-        self.p = p
-        self.vector_norm = vector_norm
+        super().__init__(p=p, vector_norm=vector_norm)
 
     def __repr__(self) -> str:
         return (
-            f"{type(self).__name__}("
-            f"p={self.p}, vector_norm={self.vector_norm})"
+            f"{type(self).__name__}(p={self.p},"
+            f"vector_norm={self.vector_norm})"
         )
-
-    def __call__(  # noqa: C901
-        self,
-        vector: NDArrayFloat | FData,
-    ) -> NDArrayFloat:
-        """Compute the Lp norm of a functional data object."""
-        from ...misc import inner_product
-
-        if isinstance(vector, np.ndarray):
-            return np.linalg.norm(  # type: ignore[no-any-return]
-                vector,
-                ord=self.p,
-                axis=-1,
-            )
-
-        vector_norm = self.vector_norm
-
-        if vector_norm is None:
-            vector_norm = self.p
-
-        # Special case, the inner product is heavily optimized
-        if self.p == vector_norm == 2:  # noqa: PLR2004
-            return np.sqrt(inner_product(vector, vector))
-
-        if isinstance(vector, FDataBasis):
-            domain = vector.basis.domain_range
-            call = vector
-
-            def integrand(*args: NDArrayFloat) -> NDArrayFloat:
-                f_args = np.asarray(args)
-                val = call(f_args)
-                try:
-                    f1 = val[:, 0, :]
-                except IndexError:
-                    f1 = val
-
-                return np.power(np.abs(f1), self.p)
-
-            integral = nquad_vec(
-                integrand,
-                domain,
-            )
-
-            res = (np.sum(integral, axis=-1)) ** (1 / self.p)
-
-        elif isinstance(vector, FDataGrid):
-            data_matrix = vector.data_matrix
-
-            if isinstance(vector_norm, (float, int)):
-                data_matrix = np.linalg.norm(
-                    vector.data_matrix,
-                    ord=vector_norm,
-                    axis=-1,
-                    keepdims=True,
-                )
-            else:
-                original_shape = data_matrix.shape
-                data_matrix = data_matrix.reshape(-1, original_shape[-1])
-                data_matrix = vector_norm(data_matrix)
-                data_matrix = data_matrix.reshape(original_shape[:-1] + (1,))
-
-            if np.isinf(self.p):
-
-                res = np.max(
-                    data_matrix,
-                    axis=tuple(range(1, data_matrix.ndim)),
-                )
-
-            else:
-
-                integrand = vector.copy(
-                    data_matrix=data_matrix**self.p,
-                    coordinate_names=(None,),
-                )
-                # Computes the norm, approximating the integral with Simpson's
-                # rule.
-                res = integrand.integrate().ravel() ** (1 / self.p)
-        else:
-            msg = f"LpNorm not implemented for type {type(vector)}"
-            raise NotImplementedError(msg)
-
-        if len(res) == 1:
-            return res[0]  # type: ignore[no-any-return]
-
-        return res  # type: ignore[no-any-return]
 
 
 l1_norm: Final = LpNorm(1)
