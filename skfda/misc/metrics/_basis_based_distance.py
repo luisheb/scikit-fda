@@ -8,10 +8,13 @@ if TYPE_CHECKING:
     from ...representation import FDataBasis
     from ...typing._numpy import NDArrayFloat
 
+from ..._utils._sklearn_adapter import (
+    BaseEstimator,
+)
 from ...misc.validation import check_fdata_same_kind
 
 
-class BasisBasedDistance:
+class BasisBasedDistance(BaseEstimator):
     r"""
     Weighted distance between two FDataBasis observations.
 
