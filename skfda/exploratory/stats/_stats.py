@@ -10,7 +10,7 @@ from scipy.stats import rankdata
 
 from skfda._utils.ndfunction import average_function_value
 
-from ..._utils import function_to_fdatabasis, nquad_vec
+from ..._utils import function_to_fdatabasis
 from ...misc.metrics._lp_distances import l2_distance
 from ...representation import FData, FDataBasis, FDataGrid, FDataIrregular
 from ...typing._numpy import NDArrayFloat
@@ -150,7 +150,7 @@ def std_fdatairregular(
     correction: int = 0,
 ) -> FDataIrregular:
     """Compute the standard deviation of a FDataIrregular."""
-    common_points, common_values = X._get_common_points_and_values()
+    common_points, common_values = X._get_common_points_and_values()  # noqa: SLF001
     std_values = np.std(
         common_values,
         axis=0,
@@ -256,7 +256,6 @@ def depth_based_median(
 
 
 def _weighted_average(X: T, weights: NDArrayFloat) -> T:
-
     if isinstance(X, FData):
         return (X * weights).sum()
 
@@ -296,7 +295,6 @@ def geometric_median(
         Object containing the computed geometric median.
 
     Example:
-
         >>> from skfda import FDataGrid
         >>> data_matrix = [[0.5, 1, 2, .5], [1.5, 1, 4, .5]]
         >>> X = FDataGrid(data_matrix)
@@ -517,7 +515,7 @@ def root_mean_square_l2(X: FData, correction: int = 0) -> NDArrayFloat:
         Defaults to cero.
 
     Returns:
-        A 1D NumPy array with the scaling factor for each component.
+        A 1D NumPy array with the scaling factor for all components.
 
     Raises:
         TypeError: If `X` is not a supported FData type.
@@ -541,5 +539,49 @@ def root_mean_square_l2(X: FData, correction: int = 0) -> NDArrayFloat:
     values = np.sum(average_function_value(x_squared)) * (
         1 / (X.n_samples - correction)
     )
+    scale = np.sqrt(values)
+    return np.atleast_1d(np.array(scale, dtype=np.float64))
+
+
+def individual_root_mean_square_l2(X: FData) -> NDArrayFloat:
+    r"""
+    Compute the individual root mean square of a functional dataset.
+
+    This method calculates a individual RMS scaling factor, where each function
+    is scaled using its own root mean square. This approach captures the
+    magnitude of each observation independently, without aggregating
+    information across the dataset.
+
+    Mathematically:
+        .. math::
+            S_i = \sqrt{\int_{\mathcal{T}} X_i(t)^2 dt}
+
+    Args:
+        X: Functional dataset to be scaled.
+
+
+    Returns:
+        A 1D NumPy array with the scaling factor for each component.
+
+    Raises:
+        TypeError: If `X` is not a supported FData type.
+
+    """
+    if isinstance(X, FDataGrid):
+        x_squared = X.copy(
+            data_matrix=(X.data_matrix) ** 2,
+            coordinate_names=(None,),
+        )
+
+    elif isinstance(X, FDataBasis):
+        x_squared = function_to_fdatabasis(
+            lambda x: X(x) ** 2,
+            new_basis=X.basis,
+        )
+    else:
+        msg = "Unsupported FData type."
+        raise TypeError(msg)
+
+    values = average_function_value(x_squared)
     scale = np.sqrt(values)
     return np.atleast_1d(np.array(scale, dtype=np.float64))
